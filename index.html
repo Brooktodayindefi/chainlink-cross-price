@@ -1,0 +1,707 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chainlink cross price</title>
+<style>
+  :root {
+    color-scheme: light;
+    --page:           #f9f9f7;
+    --surface-1:      #fcfcfb;
+    --text-primary:   #0b0b0b;
+    --text-secondary: #52514e;
+    --text-muted:     #898781;
+    --grid:           #e1e0d9;
+    --baseline:       #c3c2b7;
+    --border:         rgba(11,11,11,0.10);
+    --series-1:       #2a78d6;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root {
+      color-scheme: dark;
+      --page:           #0d0d0d;
+      --surface-1:      #1a1a19;
+      --text-primary:   #ffffff;
+      --text-secondary: #c3c2b7;
+      --text-muted:     #898781;
+      --grid:           #2c2c2a;
+      --baseline:       #383835;
+      --border:         rgba(255,255,255,0.10);
+      --series-1:       #3987e5;
+    }
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; padding: 24px;
+    background: var(--page); color: var(--text-primary);
+    font: 14px/1.5 system-ui, -apple-system, "Segoe UI", sans-serif;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  h1 { font-size: 18px; font-weight: 600; margin: 0 0 4px; }
+  .sub { color: var(--text-secondary); margin: 0 0 20px; }
+
+  .filters { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin-bottom: 16px; }
+  select, button {
+    font: inherit; color: var(--text-primary);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; cursor: pointer;
+  }
+  .slash { color: var(--text-muted); }
+  #swap { padding: 6px 9px; }
+  .days { display: flex; gap: 4px; margin-left: auto; align-items: center; }
+  .days button { border-radius: 999px; padding: 5px 12px; color: var(--text-secondary); }
+  .days button[aria-pressed="true"] {
+    color: var(--text-primary); border-color: var(--series-1); font-weight: 600;
+  }
+  .days input {
+    width: 72px; font: inherit; color: var(--text-primary);
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 999px; padding: 5px 12px; text-align: right;
+  }
+  .days input:focus { border-color: var(--series-1); outline: none; }
+
+  .card {
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 12px; padding: 16px; margin-bottom: 16px;
+  }
+  .chartbar { display: flex; gap: 8px; align-items: center; justify-content: flex-end;
+              margin-bottom: 8px; }
+  .chartbar .hint { color: var(--text-muted); font-size: 12px; margin-right: auto; }
+  .chartbar button { padding: 4px 10px; font-size: 13px; color: var(--text-secondary); }
+  .chartbar button[aria-pressed="true"] {
+    color: var(--text-primary); border-color: var(--series-1); font-weight: 600;
+  }
+  .meta { color: var(--text-muted); font-size: 12px; margin-top: 8px; }
+  .error { color: var(--text-secondary); padding: 8px 0; }
+  .busy { opacity: 0.5; transition: opacity 0.15s; }
+
+  .chartbox { position: relative; }
+  .chartbox svg { display: block; width: 100%; touch-action: none; cursor: crosshair; }
+  #chart { height: 340px; }
+  #nav { width: 100%; height: 56px; display: block; margin-top: 2px; cursor: grab;
+         touch-action: none; }
+  .tip {
+    position: absolute; pointer-events: none; display: none;
+    background: var(--surface-1); border: 1px solid var(--border);
+    border-radius: 8px; padding: 6px 10px; box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+    white-space: nowrap; z-index: 5;
+  }
+  .tip .val { font-weight: 600; font-size: 15px; }
+  .tip .when { color: var(--text-secondary); font-size: 12px; }
+
+  dialog {
+    border: 1px solid var(--border); border-radius: 12px;
+    background: var(--surface-1); color: var(--text-primary);
+    width: min(96vw, 1500px); padding: 16px;
+  }
+  dialog::backdrop { background: rgba(0, 0, 0, 0.55); }
+  .modalbar { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+  .modalbar .mtitle { font-weight: 600; margin-right: auto; }
+  #bigchart { height: min(74vh, 760px); }
+
+  .dtitle { font-weight: 600; margin-bottom: 4px; }
+  .dhead { color: var(--text-primary); font-weight: 600; margin-top: 10px; }
+  .dstep { margin: 4px 0 4px 14px; }
+  .dnote { color: var(--text-secondary); font-size: 12px; margin: 1px 0 4px 14px;
+           max-width: 64ch; }
+  .daddr { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
+           font-size: 11px; color: var(--text-muted); }
+  .dsum { color: var(--text-secondary); margin-top: 10px; }
+
+  table { border-collapse: collapse; width: 100%; }
+  th, td { text-align: right; padding: 5px 10px; font-variant-numeric: tabular-nums; }
+  th:first-child, td:first-child { text-align: left; }
+  th { color: var(--text-muted); font-weight: 500; font-size: 12px;
+       border-bottom: 1px solid var(--baseline); }
+  td { border-bottom: 1px solid var(--grid); }
+  tr:last-child td { border-bottom: none; }
+  td.delta { color: var(--text-secondary); font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>Chainlink cross price</h1>
+  <p class="sub">Custom stablecoin pairs — each leg converted to USD via Chainlink feeds.</p>
+
+  <div class="filters">
+    <select id="base" aria-label="Base asset feed"></select>
+    <span class="slash">/</span>
+    <select id="quote" aria-label="Quote asset feed"></select>
+    <button id="swap" title="Swap base and quote">&#8646;</button>
+    <div class="days" id="days" role="group" aria-label="Window">
+      <input id="custom" type="number" min="1" inputmode="numeric"
+             aria-label="Custom window in days" title="Custom window (days)">
+    </div>
+  </div>
+
+  <div class="card" id="chartcard">
+    <div class="chartbar">
+      <span class="hint">drag to zoom &middot; wheel to zoom in/out &middot; double-click to reset</span>
+      <button id="res-all" aria-pressed="true">All updates</button>
+      <button id="res-daily" aria-pressed="false">Daily</button>
+      <button id="resetzoom" hidden>Reset zoom</button>
+      <button id="fullscreen" title="Open large view">&#x26F6;</button>
+    </div>
+    <div class="chartbox" id="chartbox">
+      <svg id="chart" role="img" aria-label="Cross price line chart"></svg>
+      <div id="tooltip" class="tip"></div>
+    </div>
+    <svg id="nav" aria-label="Full-range navigator"></svg>
+    <div class="meta" id="meta"></div>
+    <div class="meta" id="stats"></div>
+    <div class="error" id="error" hidden></div>
+  </div>
+
+  <div class="card" id="derive" hidden>
+    <div class="dtitle">How this price is derived</div>
+    <div id="dlines"></div>
+  </div>
+
+  <div class="card">
+    <table aria-label="Daily closes">
+      <thead><tr><th>Date (UTC)</th><th>Close</th><th>&Delta; day</th></tr></thead>
+      <tbody id="rows"></tbody>
+    </table>
+  </div>
+</div>
+
+<dialog id="modal">
+  <div class="modalbar">
+    <span class="mtitle" id="mtitle"></span>
+    <button id="closemodal" title="Close">&#x2715;</button>
+  </div>
+  <div class="chartbox" id="bigbox">
+    <svg id="bigchart" role="img" aria-label="Cross price line chart, large"></svg>
+    <div id="bigtip" class="tip"></div>
+  </div>
+</dialog>
+
+<script>
+"use strict";
+const $ = id => document.getElementById(id);
+const SVG = "http://www.w3.org/2000/svg";
+// base/quote select values are "asset|method" ("USD|" for plain USD)
+let state = { base: "sUSDS|exrate", quote: "USDT|market", days: 30,
+              maxDays: 1825, data: null, busy: false,
+              zoom: null,      // {t0, t1} seconds, or null = whole window
+              res: "all" };    // "all" updates | "daily" closes
+const split = v => { const [a, m] = v.split("|"); return { asset: a, method: m }; };
+
+function el(ns, tag, attrs) {
+  const e = ns ? document.createElementNS(ns, tag) : document.createElement(tag);
+  for (const [k, v] of Object.entries(attrs || {})) e.setAttribute(k, v);
+  return e;
+}
+const css = name => getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+
+// ------------------------------------------------------------------ data
+
+function chartPoints(data) {
+  if (state.res === "daily")
+    return data.daily.filter(r => r[1] != null)
+        .map(r => [Date.parse(r[0] + "T23:59:59Z") / 1000, r[1]]);
+  return data.points;
+}
+
+function bisect(pts, t) {  // index of point nearest in time
+  let lo = 0, hi = pts.length - 1;
+  while (hi - lo > 1) { const m = (lo + hi) >> 1; if (pts[m][0] < t) lo = m; else hi = m; }
+  return (t - pts[lo][0] <= pts[hi][0] - t) ? lo : hi;
+}
+
+function m4(pts, buckets) {  // downsample keeping first/min/max/last per bucket
+  if (pts.length <= buckets * 3) return pts;
+  const t0 = pts[0][0], span = (pts[pts.length - 1][0] - t0) || 1;
+  const out = [];
+  let cur = [], curB = 0;
+  const flush = () => {
+    if (!cur.length) return;
+    let mn = cur[0], mx = cur[0];
+    for (const q of cur) { if (q[1] < mn[1]) mn = q; if (q[1] > mx[1]) mx = q; }
+    const uniq = [...new Set([cur[0], mn, mx, cur[cur.length - 1]])]
+        .sort((a, b) => a[0] - b[0]);
+    out.push(...uniq);
+  };
+  for (const p of pts) {
+    const b = Math.min(buckets - 1, Math.floor((p[0] - t0) / span * buckets));
+    if (b !== curB) { flush(); cur = []; curB = b; }
+    cur.push(p);
+  }
+  flush();
+  return out;
+}
+
+function domainOf(pts) {
+  const full = [pts[0][0], pts[pts.length - 1][0]];
+  if (!state.zoom) return full;
+  const t0 = Math.max(full[0], state.zoom.t0), t1 = Math.min(full[1], state.zoom.t1);
+  return t1 > t0 ? [t0, t1] : full;
+}
+
+const fmtVal = v => v >= 100 ? v.toFixed(2) : v.toFixed(8);
+const fmtDate = (ts, spanDays) => new Date(ts * 1000).toLocaleDateString(undefined,
+  spanDays > 270 ? { year: "2-digit", month: "short" }
+                 : { month: "short", day: "numeric" });
+const fmtTick = (ts, spanDays) =>
+  spanDays < 3 ? new Date(ts * 1000).toLocaleString(undefined,
+                   { month: "short", day: "numeric", hour: "2-digit" })
+               : fmtDate(ts, spanDays);
+
+function niceTicks(lo, hi, n) {
+  const span = hi - lo || Math.abs(hi) * 1e-6 || 1e-6;
+  const step0 = span / n, mag = Math.pow(10, Math.floor(Math.log10(step0)));
+  const step = [1, 2, 5, 10].map(m => m * mag).find(s => s >= step0);
+  const ticks = [];
+  for (let v = Math.ceil(lo / step) * step; v <= hi + step / 1e6; v += step) ticks.push(v);
+  const dp = Math.max(0, -Math.floor(Math.log10(step)));
+  return { ticks, dp };
+}
+
+// ------------------------------------------------------------------ charts
+
+// each ctx: {svg, tip, box} plus .map set on every draw
+const mainCtx = {}, bigCtx = {};
+
+function drawChart(ctx, data) {
+  const svg = ctx.svg;
+  svg.textContent = "";
+  ctx.map = null;
+  const W = svg.clientWidth, H = svg.clientHeight;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  const all = chartPoints(data);
+  if (!all.length) return;
+
+  const padL = 64, padR = 76, padT = 14, padB = 28;
+  const [t0, t1] = domainOf(all);
+  // visible slice plus one neighbour each side so the line runs to the edges
+  let i0 = bisect(all, t0), i1 = bisect(all, t1);
+  while (i0 > 0 && all[i0][0] >= t0) i0--;
+  while (i1 < all.length - 1 && all[i1][0] <= t1) i1++;
+  const vis = all.slice(i0, i1 + 1);
+  const inside = vis.filter(p => p[0] >= t0 && p[0] <= t1);
+  const scaleBy = inside.length > 1 ? inside : vis;
+
+  let vLo = Math.min(...scaleBy.map(p => p[1])), vHi = Math.max(...scaleBy.map(p => p[1]));
+  const vPad = (vHi - vLo || Math.abs(vHi) * 0.001 || 0.001) * 0.08;
+  vLo -= vPad; vHi += vPad;
+  const X = t => padL + (t1 === t0 ? 0.5 : (t - t0) / (t1 - t0)) * (W - padL - padR);
+  const Y = v => padT + (1 - (v - vLo) / (vHi - vLo)) * (H - padT - padB);
+  const invX = x => t0 + (x - padL) / (W - padL - padR) * (t1 - t0);
+  const spanDays = (t1 - t0) / 86400;
+
+  const clipId = `clip-${svg.id}`;
+  const clip = el(SVG, "clipPath", { id: clipId });
+  clip.append(el(SVG, "rect", { x: padL, y: 0, width: Math.max(1, W - padL - padR),
+                                height: H }));
+  svg.append(clip);
+
+  const { ticks, dp } = niceTicks(vLo, vHi, 5);
+  for (const v of ticks) {
+    svg.append(el(SVG, "line", { x1: padL, x2: W - padR, y1: Y(v), y2: Y(v),
+                                 stroke: css("--grid"), "stroke-width": 1 }));
+    const t = el(SVG, "text", { x: padL - 8, y: Y(v) + 4, "text-anchor": "end",
+                                fill: css("--text-muted"), "font-size": 11,
+                                style: "font-variant-numeric: tabular-nums" });
+    t.textContent = v.toFixed(dp);
+    svg.append(t);
+  }
+  const nx = Math.min(6, inside.length || 2);
+  for (let i = 0; i < nx; i++) {
+    const ts = t0 + (t1 - t0) * (nx === 1 ? 0.5 : i / (nx - 1));
+    const t = el(SVG, "text", { x: X(ts), y: H - 8, "text-anchor": "middle",
+                                fill: css("--text-muted"), "font-size": 11 });
+    t.textContent = fmtTick(ts, spanDays);
+    svg.append(t);
+  }
+  svg.append(el(SVG, "line", { x1: padL, x2: W - padR, y1: H - padB, y2: H - padB,
+                               stroke: css("--baseline"), "stroke-width": 1 }));
+
+  // spike-preserving downsample for the drawn path; hover uses full data
+  const draw = m4(vis, Math.max(50, Math.floor((W - padL - padR))));
+  const line = draw.map((p, i) =>
+      `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
+  const base = `L${X(draw[draw.length - 1][0]).toFixed(1)},${H - padB}` +
+               `L${X(draw[0][0]).toFixed(1)},${H - padB}Z`;
+  svg.append(el(SVG, "path", { d: line + base, fill: css("--series-1"), opacity: 0.1,
+                               "clip-path": `url(#${clipId})` }));
+  svg.append(el(SVG, "path", { d: line, fill: "none", stroke: css("--series-1"),
+                               "stroke-width": 2, "stroke-linejoin": "round",
+                               "stroke-linecap": "round",
+                               "clip-path": `url(#${clipId})` }));
+
+  // endpoint marker + direct label (only when the series end is in view)
+  const [lt, lv] = all[all.length - 1];
+  if (lt >= t0 && lt <= t1) {
+    svg.append(el(SVG, "circle", { cx: X(lt), cy: Y(lv), r: 4, fill: css("--series-1"),
+                                   stroke: css("--surface-1"), "stroke-width": 2 }));
+    const lbl = el(SVG, "text", { x: X(lt) + 8, y: Y(lv) + 4, fill: css("--text-primary"),
+                                  "font-size": 12, "font-weight": 600,
+                                  style: "font-variant-numeric: tabular-nums" });
+    lbl.textContent = lv >= 100 ? lv.toFixed(2) : lv.toFixed(5);
+    svg.append(lbl);
+  }
+
+  // hover + brush layers
+  ctx.hair = el(SVG, "line", { y1: padT, y2: H - padB, stroke: css("--baseline"),
+                               "stroke-width": 1, visibility: "hidden" });
+  ctx.dot = el(SVG, "circle", { r: 4, fill: css("--series-1"), visibility: "hidden",
+                                stroke: css("--surface-1"), "stroke-width": 2 });
+  ctx.brush = el(SVG, "rect", { y: padT, height: H - padT - padB,
+                                fill: css("--series-1"), opacity: 0.15,
+                                visibility: "hidden" });
+  svg.append(ctx.brush, ctx.hair, ctx.dot);
+
+  ctx.map = { X, Y, invX, pts: vis, spanDays, plot: { left: padL, right: W - padR } };
+}
+
+function crosshairAt(ctx, x) {
+  const map = ctx.map;
+  if (!map) return;
+  const i = bisect(map.pts, map.invX(x));
+  const [pt, pv] = map.pts[i];
+  const cx = map.X(pt), cy = map.Y(pv);
+  ctx.hair.setAttribute("x1", cx); ctx.hair.setAttribute("x2", cx);
+  ctx.hair.setAttribute("visibility", "visible");
+  ctx.dot.setAttribute("cx", cx); ctx.dot.setAttribute("cy", cy);
+  ctx.dot.setAttribute("visibility", "visible");
+  const tip = ctx.tip;
+  tip.textContent = "";
+  const val = el(null, "div", { class: "val" });
+  val.textContent = fmtVal(pv);
+  const when = el(null, "div", { class: "when" });
+  when.textContent = new Date(pt * 1000).toLocaleString(undefined,
+    map.spanDays > 270
+      ? { year: "numeric", month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" }
+      : { month: "short", day: "numeric", hour: "2-digit", minute: "2-digit" });
+  tip.append(val, when);
+  tip.style.display = "block";
+  const bw = ctx.box.clientWidth;
+  tip.style.left = (cx + 150 > bw ? cx - tip.offsetWidth - 12 : cx + 12) + "px";
+  tip.style.top = Math.max(0, cy - 44) + "px";
+}
+
+function hideHover(ctx) {
+  if (ctx.hair) { ctx.hair.setAttribute("visibility", "hidden");
+                  ctx.dot.setAttribute("visibility", "hidden"); }
+  ctx.tip.style.display = "none";
+}
+
+function attachChart(ctx) {
+  const svg = ctx.svg;
+  const px = e => e.clientX - svg.getBoundingClientRect().left;
+  let drag = null;
+  svg.addEventListener("pointerdown", e => {
+    if (!ctx.map || e.button !== 0) return;
+    drag = { x0: px(e), moved: false };
+    svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener("pointermove", e => {
+    if (!ctx.map) return;
+    const x = px(e);
+    if (drag) {
+      if (Math.abs(x - drag.x0) > 6) drag.moved = true;
+      if (drag.moved) {
+        const [a, b] = [drag.x0, x].sort((m, n) => m - n);
+        ctx.brush.setAttribute("x", a);
+        ctx.brush.setAttribute("width", b - a);
+        ctx.brush.setAttribute("visibility", "visible");
+      }
+    }
+    crosshairAt(ctx, x);
+  });
+  svg.addEventListener("pointerup", e => {
+    if (drag && drag.moved && ctx.map) {
+      const [a, b] = [drag.x0, px(e)].sort((m, n) => m - n);
+      state.zoom = { t0: ctx.map.invX(a), t1: ctx.map.invX(b) };
+      rerender();
+    } else if (ctx.brush) ctx.brush.setAttribute("visibility", "hidden");
+    drag = null;
+  });
+  svg.addEventListener("pointerleave", () => { if (!drag) hideHover(ctx); });
+  svg.addEventListener("dblclick", () => { state.zoom = null; rerender(); });
+  svg.addEventListener("wheel", e => {
+    if (!ctx.map || !state.data) return;
+    e.preventDefault();
+    const all = chartPoints(state.data);
+    if (all.length < 2) return;
+    const full = [all[0][0], all[all.length - 1][0]];
+    const [t0, t1] = domainOf(all);
+    const factor = e.deltaY < 0 ? 0.7 : 1 / 0.7;
+    const center = Math.min(t1, Math.max(t0, ctx.map.invX(px(e))));
+    let span = (t1 - t0) * factor;
+    const minSpan = Math.max(60, (full[1] - full[0]) / 2000);
+    span = Math.max(minSpan, span);
+    let n0 = center - (center - t0) * (span / (t1 - t0));
+    let n1 = n0 + span;
+    if (n0 < full[0]) { n1 += full[0] - n0; n0 = full[0]; }
+    if (n1 > full[1]) { n0 -= n1 - full[1]; n1 = full[1]; n0 = Math.max(full[0], n0); }
+    state.zoom = (n0 <= full[0] && n1 >= full[1]) ? null : { t0: n0, t1: n1 };
+    rerender();
+  }, { passive: false });
+}
+
+// ------------------------------------------------------------------ navigator
+
+function drawNav(data) {
+  const svg = $("nav");
+  svg.textContent = "";
+  const all = chartPoints(data);
+  const W = svg.clientWidth, H = svg.clientHeight;
+  svg.setAttribute("viewBox", `0 0 ${W} ${H}`);
+  if (all.length < 2) { svg.dataset.on = ""; return; }
+  const [f0, f1] = [all[0][0], all[all.length - 1][0]];
+  let vLo = Infinity, vHi = -Infinity;
+  const draw = m4(all, W);
+  for (const p of draw) { if (p[1] < vLo) vLo = p[1]; if (p[1] > vHi) vHi = p[1]; }
+  const pad = (vHi - vLo || 1e-9) * 0.15;
+  vLo -= pad; vHi += pad;
+  const X = t => (t - f0) / (f1 - f0) * W;
+  const Y = v => 4 + (1 - (v - vLo) / (vHi - vLo)) * (H - 8);
+  const line = draw.map((p, i) =>
+      `${i ? "L" : "M"}${X(p[0]).toFixed(1)},${Y(p[1]).toFixed(1)}`).join("");
+  svg.append(el(SVG, "path", { d: line, fill: "none", stroke: css("--text-muted"),
+                               "stroke-width": 1 }));
+  const [t0, t1] = domainOf(all);
+  const wx = X(t0), ww = Math.max(3, X(t1) - X(t0));
+  svg.append(el(SVG, "rect", { x: wx, y: 0, width: ww, height: H,
+                               fill: css("--series-1"), opacity: 0.15 }));
+  for (const x of [wx, wx + ww])
+    svg.append(el(SVG, "line", { x1: x, x2: x, y1: 0, y2: H,
+                                 stroke: css("--series-1"), "stroke-width": 2 }));
+  svg._nav = { f0, f1, X, W };
+}
+
+function attachNav() {
+  const svg = $("nav");
+  let drag = null;
+  const toT = e => {
+    const n = svg._nav;
+    const x = e.clientX - svg.getBoundingClientRect().left;
+    return n.f0 + Math.min(1, Math.max(0, x / n.W)) * (n.f1 - n.f0);
+  };
+  svg.addEventListener("pointerdown", e => {
+    if (!svg._nav || !state.data) return;
+    const all = chartPoints(state.data);
+    const [t0, t1] = domainOf(all);
+    drag = { start: toT(e), t0, t1 };
+    svg.setPointerCapture(e.pointerId);
+  });
+  svg.addEventListener("pointermove", e => {
+    if (!drag || !svg._nav) return;
+    const n = svg._nav;
+    const dt = toT(e) - drag.start;
+    const span = drag.t1 - drag.t0;
+    if (span >= n.f1 - n.f0) return;           // whole range shown: nothing to pan
+    let n0 = drag.t0 + dt, n1 = drag.t1 + dt;
+    if (n0 < n.f0) { n0 = n.f0; n1 = n.f0 + span; }
+    if (n1 > n.f1) { n1 = n.f1; n0 = n.f1 - span; }
+    state.zoom = { t0: n0, t1: n1 };
+    rerender();
+  });
+  const done = () => { drag = null; };
+  svg.addEventListener("pointerup", done);
+  svg.addEventListener("pointercancel", done);
+}
+
+// ------------------------------------------------------------------ init / load
+
+async function init() {
+  const info = await (await fetch("/api/assets")).json();
+  state.maxDays = info.max_days || 1825;
+  $("custom").max = state.maxDays;
+  for (const id of ["base", "quote"]) {
+    for (const a of info.assets) {
+      const choices = a.methods.length
+        ? a.methods.map(m => [`${a.asset}|${m.id}`, `${a.asset} · ${m.label}`])
+        : [[`${a.asset}|`, a.asset]];
+      for (const [value, label] of choices) {
+        const o = el(null, "option", { value });
+        o.textContent = label;
+        $(id).appendChild(o);
+      }
+    }
+    $(id).addEventListener("change", () => { state[id] = $(id).value; load(); });
+  }
+  for (const d of info.days) {
+    const b = el(null, "button", { "data-days": d });
+    b.textContent = d + "d";
+    b.addEventListener("click", () => { state.days = d; load(); });
+    $("days").insertBefore(b, $("custom"));
+  }
+  const applyCustom = () => {
+    const v = Math.round(+$("custom").value);
+    if (v >= 1 && v <= state.maxDays && v !== state.days) { state.days = v; load(); }
+  };
+  $("custom").addEventListener("change", applyCustom);
+  $("custom").addEventListener("keydown", ev => { if (ev.key === "Enter") applyCustom(); });
+  $("swap").addEventListener("click", () => {
+    [state.base, state.quote] = [state.quote, state.base];
+    load();
+  });
+
+  mainCtx.svg = $("chart"); mainCtx.tip = $("tooltip"); mainCtx.box = $("chartbox");
+  bigCtx.svg = $("bigchart"); bigCtx.tip = $("bigtip"); bigCtx.box = $("bigbox");
+  attachChart(mainCtx);
+  attachChart(bigCtx);
+  attachNav();
+  for (const r of ["all", "daily"])
+    $(`res-${r}`).addEventListener("click", () => {
+      state.res = r; state.zoom = null; rerender();
+    });
+  $("resetzoom").addEventListener("click", () => { state.zoom = null; rerender(); });
+  $("fullscreen").addEventListener("click", () => {
+    if (!state.data) return;
+    $("mtitle").textContent = `${state.data.pair} — last ${state.data.days}d`;
+    $("modal").showModal();
+    drawChart(bigCtx, state.data);
+  });
+  $("closemodal").addEventListener("click", () => $("modal").close());
+  window.addEventListener("resize", () => { if (state.data) rerender(); });
+  matchMedia("(prefers-color-scheme: dark)")
+    .addEventListener("change", () => { if (state.data) rerender(); });
+  load();
+}
+
+function syncControls() {
+  $("base").value = state.base;
+  $("quote").value = state.quote;
+  for (const b of $("days").querySelectorAll("button"))
+    b.setAttribute("aria-pressed", String(+b.dataset.days === state.days));
+  if (document.activeElement !== $("custom")) $("custom").value = state.days;
+  $("res-all").setAttribute("aria-pressed", String(state.res === "all"));
+  $("res-daily").setAttribute("aria-pressed", String(state.res === "daily"));
+  $("resetzoom").hidden = !state.zoom;
+}
+
+async function load() {
+  syncControls();
+  if (state.busy) { state.dirty = true; return; }  // refetched after the inflight one
+  state.busy = true;
+  const req = { base: state.base, quote: state.quote, days: state.days };
+  document.querySelectorAll(".card").forEach(c => c.classList.add("busy"));
+  $("error").hidden = true;
+  try {
+    const b = split(req.base), qt = split(req.quote);
+    let q = `base=${b.asset}&quote=${qt.asset}&days=${req.days}`;
+    if (b.method) q += `&base_method=${b.method}`;
+    if (qt.method) q += `&quote_method=${qt.method}`;
+    const r = await fetch("/api/history?" + q);
+    const j = await r.json();
+    if (!r.ok) throw new Error(j.error || r.statusText);
+    state.data = j;
+    state.zoom = null;
+    render(j);
+  } catch (e) {
+    $("error").textContent = "Could not load series: " + e.message;
+    $("error").hidden = false;
+  } finally {
+    state.busy = false;
+    document.querySelectorAll(".card").forEach(c => c.classList.remove("busy"));
+    syncControls();
+    // selection changed while this request was in flight -> fetch again
+    if (state.dirty || req.base !== state.base || req.quote !== state.quote ||
+        req.days !== state.days) {
+      state.dirty = false;
+      load();
+    }
+  }
+}
+
+// ------------------------------------------------------------------ render
+
+function rerender() { if (state.data) render(state.data); }
+
+function render(data) {
+  syncControls();
+  drawChart(mainCtx, data);
+  drawNav(data);
+  if ($("modal").open) drawChart(bigCtx, data);
+  renderTable(data);
+  renderDerivation(data);
+  const tag = n => `${n}@${(data.legs[n] || {}).chain || ""}`;
+  let formula = data.base_legs.map(tag).join(" × ") || "1";
+  if (data.quote_legs.length) formula += " ÷ " + data.quote_legs.map(tag).join(" ÷ ");
+  $("meta").textContent =
+    `${data.pair} — ${data.points.length} updates over ${data.days}d — ${formula}`;
+  renderStats(data);
+}
+
+function renderStats(data) {
+  const all = chartPoints(data);
+  if (all.length < 2) { $("stats").textContent = ""; return; }
+  const [t0, t1] = domainOf(all);
+  const vis = all.filter(p => p[0] >= t0 && p[0] <= t1);
+  if (vis.length < 2) { $("stats").textContent = ""; return; }
+  let mn = Infinity, mx = -Infinity;
+  for (const p of vis) { if (p[1] < mn) mn = p[1]; if (p[1] > mx) mx = p[1]; }
+  const chg = (vis[vis.length - 1][1] / vis[0][1] - 1) * 100;
+  const scope = state.zoom ? "zoomed view" : "full window";
+  $("stats").textContent =
+    `${scope}: ${vis.length} pts · min ${fmtVal(mn)} · max ${fmtVal(mx)}` +
+    ` · change ${chg >= 0 ? "+" : ""}${chg.toFixed(3)}%` +
+    (state.res === "daily" ? " · daily closes" : "");
+}
+
+function renderDerivation(data) {
+  const box = $("dlines");
+  box.textContent = "";
+  const d = data.derivation;
+  if (!d) { $("derive").hidden = true; return; }
+  const [baseAsset, quoteAsset] = data.pair.split("/");
+  const addLine = (cls, text) => {
+    const e = el(null, "div", { class: cls });
+    e.textContent = text;
+    box.append(e);
+    return e;
+  };
+  const addSide = (label, asset, method, steps) => {
+    if (asset === "USD" && !steps.length) {
+      addLine("dhead", `${label}: USD — already the unit, no feed needed`);
+      return;
+    }
+    addLine("dhead",
+      `${label}: ${asset} → USD via ${method} = ${steps.map(s => s.name).join(" × ") || "(cancelled legs only)"}`);
+    for (const s of steps) {
+      const line = el(null, "div", { class: "dstep" });
+      line.textContent = `${s.name} — ${s.kind} feed, ${s.src}, on ${s.chain}  `;
+      const addr = el(null, "span", { class: "daddr" });
+      addr.textContent = s.address;
+      line.append(addr);
+      box.append(line);
+      if (s.note) addLine("dnote", s.note);
+    }
+  };
+  addSide("Base", baseAsset, data.base_method, d.base);
+  addSide("Quote", quoteAsset, data.quote_method, d.quote);
+  for (const s of d.cancelled)
+    addLine("dnote", `${s.name} appears in both legs' compositions, cancels out exactly, and is not fetched.`);
+  const bs = d.base.map(s => s.name).join(" × ") || "1";
+  const qs = d.quote.map(s => s.name).join(" × ") || "1";
+  addLine("dsum", `${data.pair} = (${bs}) ÷ (${qs}); each leg uses its latest value at or before each chart timestamp.`);
+  $("derive").hidden = false;
+}
+
+function renderTable(data) {
+  const tbody = $("rows");
+  tbody.textContent = "";
+  const daily = data.daily.slice().reverse();  // latest first
+  daily.forEach((row, i) => {
+    const [date, price] = row;
+    const prev = daily[i + 1] ? daily[i + 1][1] : null;
+    const tr = el(null, "tr");
+    const td1 = el(null, "td"), td2 = el(null, "td"),
+          td3 = el(null, "td", { class: "delta" });
+    td1.textContent = date;
+    td2.textContent = price == null ? "–" : price.toFixed(8);
+    td3.textContent = (price != null && prev != null)
+      ? (price - prev >= 0 ? "+" : "") + (price - prev).toFixed(8) : "";
+    tr.append(td1, td2, td3);
+    tbody.append(tr);
+  });
+}
+
+init();
+</script>
+</body>
+</html>
