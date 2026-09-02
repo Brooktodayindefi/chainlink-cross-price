@@ -33,10 +33,22 @@ def method_label(asset, m):
     return f"exrate · {src}" if src else "exrate"
 
 
+EXPLORER = {
+    "ethereum": "https://etherscan.io",
+    "arbitrum": "https://arbiscan.io",
+    "base": "https://basescan.org",
+    "optimism": "https://optimistic.etherscan.io",
+    "mantle": "https://mantlescan.xyz",
+    "plasma": "https://plasmascan.to",
+}
+
+
 def leg_info(name):
     f = FEEDS[name]
+    explorer = EXPLORER.get(f["chain"])
     return {"name": name, "chain": f["chain"], "kind": f["kind"],
             "src": f.get("src", "Chainlink"), "address": f["address"],
+            "url": f"{explorer}/address/{f['address']}" if explorer else None,
             "note": f.get("note")}
 
 

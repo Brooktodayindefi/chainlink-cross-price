@@ -107,6 +107,8 @@
            max-width: 64ch; }
   .daddr { font-family: ui-monospace, "Cascadia Mono", Consolas, monospace;
            font-size: 11px; color: var(--text-muted); }
+  a.daddr { text-decoration: none; }
+  a.daddr:hover { color: var(--series-1); text-decoration: underline; }
   .dsum { color: var(--text-secondary); margin-top: 10px; }
 
   table { border-collapse: collapse; width: 100%; }
@@ -665,8 +667,11 @@ function renderDerivation(data) {
     for (const s of steps) {
       const line = el(null, "div", { class: "dstep" });
       line.textContent = `${s.name} — ${s.kind} feed, ${s.src}, on ${s.chain}  `;
-      const addr = el(null, "span", { class: "daddr" });
-      addr.textContent = s.address;
+      const addr = s.url
+        ? el(null, "a", { class: "daddr", href: s.url, target: "_blank",
+                          rel: "noopener noreferrer" })
+        : el(null, "span", { class: "daddr" });
+      addr.textContent = s.address + (s.url ? " ↗" : "");
       line.append(addr);
       box.append(line);
       if (s.note) addLine("dnote", s.note);
