@@ -26,7 +26,7 @@ from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
 from feeds import (FEEDS, SEL_CONVERT_TO_ASSETS, SEL_LATEST_ROUND, SEL_PRICE,
-                   latest_block, read_feed, read_source, rpc_batch,
+                   cg_get, latest_block, read_feed, read_source, rpc_batch,
                    _decode_int256)
 from cross import legs, methods, parse_spec, PriceError
 
@@ -179,11 +179,26 @@ def _block_sampled(name, cutoff_ts):
     return _trim(sorted(pts), cutoff_ts)
 
 
+def _coingecko_history(name, cutoff_ts):
+    """History from CoinGecko's market-chart API (free tier: hourly points up
+    to 90 days back, daily beyond, 365 days max). Not disk-cached — recent
+    points revise, and it is one HTTP call."""
+    f = FEEDS[name]
+    days = min(365, max(1, int((time.time() - cutoff_ts) / 86400) + 1))
+    j = cg_get(f"coins/{f['address']}/market_chart?vs_currency=usd&days={days}")
+    points = sorted({(int(ms / 1000), price) for ms, price in j.get("prices", [])})
+    live = read_source(f)
+    points = sorted(set(points) | {(live["updated_at"], live["answer"])})
+    return _trim(points, cutoff_ts)
+
+
 def feed_rounds(name, cutoff_ts):
     """As-of history for feed `name`: sorted [(updated_at, price_float), ...]
     covering cutoff_ts..now, plus one anchor round older than the cutoff so
     a value exists at the window start."""
     f = FEEDS[name]
+    if f.get("history") == "coingecko":
+        return _coingecko_history(name, cutoff_ts)
     if f.get("history") == "blocks":
         return _block_sampled(name, cutoff_ts)
     chain, address = f["chain"], f["address"]

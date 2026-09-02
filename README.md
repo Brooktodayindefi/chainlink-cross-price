@@ -51,7 +51,8 @@ python history.py syrupUSDT/GHO --days 90 --json
 Mostly Chainlink feeds (proxy addresses verified live against
 docs.chain.link's directory), plus project-supplied adapters: re.xyz's
 reUSD/USD oracle, the Savings-crvUSD vault rate, RedStone's USD3 feed, an
-apyUSD-in-apxUSD `price()` oracle, and f(x)'s fxSAVE NAV oracle. The full
+apyUSD-in-apxUSD `price()` oracle, f(x)'s fxSAVE NAV oracle, and CoinGecko's
+market price for reUSD (keyless free API). The full
 registry with addresses, alternates, and per-feed notes is in `feeds.py`;
 project history and open issues (assets with no on-chain feed yet: USDat,
 BOLD) are in `HANDOVER.md`.

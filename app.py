@@ -17,7 +17,7 @@ from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import urlparse, parse_qs
 
 import history
-from cross import FEEDS, MARKET, EXRATE, methods, PriceError
+from cross import FEEDS, MARKET, EXRATE, MARKET_VIA_EXRATE, methods, PriceError
 
 ROOT = os.path.dirname(os.path.abspath(__file__))
 ASSETS = sorted(set(MARKET) | set(EXRATE) | {"USD"})
@@ -28,7 +28,10 @@ _lock = threading.Lock()  # serialize RPC walks; the round cache isn't thread-sa
 
 def method_label(asset, m):
     if m == "market":
-        return f"market @ {FEEDS[MARKET[asset]]['chain']}"
+        if asset in MARKET:
+            return f"market @ {FEEDS[MARKET[asset]]['chain']}"
+        # market-via-exrate alias (no direct market feed exists)
+        return f"market · via {FEEDS[EXRATE[asset]]['quote']}"
     src = FEEDS[EXRATE[asset]].get("src")
     return f"exrate · {src}" if src else "exrate"
 
@@ -46,10 +49,10 @@ EXPLORER = {
 def leg_info(name):
     f = FEEDS[name]
     explorer = EXPLORER.get(f["chain"])
+    url = f.get("url") or (f"{explorer}/address/{f['address']}" if explorer else None)
     return {"name": name, "chain": f["chain"], "kind": f["kind"],
             "src": f.get("src", "Chainlink"), "address": f["address"],
-            "url": f"{explorer}/address/{f['address']}" if explorer else None,
-            "note": f.get("note")}
+            "url": url, "note": f.get("note")}
 
 
 ASSET_INFO = [{"asset": a,

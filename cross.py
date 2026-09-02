@@ -31,6 +31,11 @@ from feeds import FEEDS, read_source
 MARKET = {f["base"]: name for name, f in FEEDS.items() if f["kind"] == "market"}
 EXRATE = {f["base"]: name for name, f in FEEDS.items() if f["kind"] == "exrate"}
 
+# assets whose "market" method is the exrate composition (no direct market
+# feed exists anywhere; the exrate chain already ends in the underlying's
+# market feed, so both methods are numerically identical — kept for symmetry)
+MARKET_VIA_EXRATE = {"sUSDS"}
+
 
 class PriceError(ValueError):
     pass
@@ -52,7 +57,7 @@ def methods(asset):
     out = []
     if asset in EXRATE:
         out.append("exrate")
-    if asset in MARKET:
+    if asset in MARKET or asset in MARKET_VIA_EXRATE:
         out.append("market")
     return out
 
@@ -70,6 +75,8 @@ def legs(asset, method=None):
     m = method or avail[0]
     if m not in avail:
         raise PriceError(f"{asset} has no {m} feed (available: {', '.join(avail)})")
+    if m == "market" and asset not in MARKET:  # market-via-exrate alias
+        m = "exrate"
     name = EXRATE[asset] if m == "exrate" else MARKET[asset]
     return [name] + legs(FEEDS[name]["quote"])
 

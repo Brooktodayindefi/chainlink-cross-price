@@ -83,7 +83,12 @@ FEEDS = {
     "sUSDe/USDe":     dict(chain="arbitrum", kind="exrate", base="sUSDe",     quote="USDe",
                            address="0x605EA726F0259a30db5b7c9ef39Df9fE78665C44"),
     "sUSDS/USDS":     dict(chain="arbitrum", kind="exrate", base="sUSDS",     quote="USDS",
-                           address="0x2483326d19f780Fb082f333Fe124e4C075B207ba"),
+                           address="0x2483326d19f780Fb082f333Fe124e4C075B207ba",
+                           note="sUSDS has no direct USD market feed on any "
+                                "chain (directory checked 2026-09-02), so both "
+                                "its exrate and market methods compose this "
+                                "exchange rate with the USDS/USD market feed — "
+                                "they are numerically identical."),
     "syrupUSDC/USDC": dict(chain="arbitrum", kind="exrate", base="syrupUSDC", quote="USDC",
                            address="0xF8722c901675C4F2F7824E256B8A6477b2c105FB"),
     "syrupUSDT/USDT": dict(chain="mantle",   kind="exrate", base="syrupUSDT", quote="USDT",
@@ -174,6 +179,15 @@ FEEDS = {
                                "Composes with the Chainlink apxUSD/USD "
                                "exchange-rate feed. History is sampled at past "
                                "blocks."),
+    "reUSD/USD-cg": dict(chain="coingecko", kind="market", base="reUSD", quote="USD",
+                         address="re-protocol-reusd", src="CoinGecko",
+                         reader="coingecko", history="coingecko",
+                         url="https://www.coingecko.com/en/coins/re-protocol-reusd",
+                         note="CoinGecko market price for Re Protocol reUSD "
+                              "(id re-protocol-reusd — NOT resupply-usd, a "
+                              "different project). Off-chain aggregated trading "
+                              "price; history via CoinGecko's market-chart API, "
+                              "capped at 365 days on the free tier."),
     "fxSAVE/USD": dict(chain="ethereum", kind="exrate", base="fxSAVE", quote="USD",
                        address="0x9dD65b6d956E31F4dc093372D975275986695827",
                        src="f(x) Protocol", history="blocks",
@@ -371,6 +385,28 @@ def read_price(chain, address, scale):
     return _state_dict(chain, address, "price() oracle", scale, raw)
 
 
+def cg_get(path):
+    """GET a CoinGecko API path (free tier, no key)."""
+    req = urllib.request.Request(f"https://api.coingecko.com/api/v3/{path}",
+                                 headers=HEADERS)
+    with urllib.request.urlopen(req, timeout=30) as r:
+        return json.load(r)
+
+
+def read_coingecko(coin_id):
+    """CoinGecko spot price in USD — same dict shape as read_feed."""
+    j = cg_get(f"simple/price?ids={coin_id}&vs_currencies=usd"
+               "&include_last_updated_at=true")
+    price = j[coin_id]["usd"]
+    updated = int(j[coin_id].get("last_updated_at") or time.time())
+    return {
+        "chain": "coingecko", "address": coin_id,
+        "description": "CoinGecko market price", "decimals": 8,
+        "raw": int(price * 1e8), "answer": price, "updated_at": updated,
+        "age_h": round((time.time() - updated) / 3600, 2), "round_id": 0,
+    }
+
+
 def read_source(feed):
     """Read a FEEDS entry through its declared reader."""
     reader = feed.get("reader", "aggregator")
@@ -378,6 +414,8 @@ def read_source(feed):
         return read_vault(feed["chain"], feed["address"])
     if reader == "price":
         return read_price(feed["chain"], feed["address"], feed.get("scale", 18))
+    if reader == "coingecko":
+        return read_coingecko(feed["address"])
     d = read_feed(feed["chain"], feed["address"])
     if d["updated_at"] == 0:  # NAV-style aggregators report no timestamp
         d["updated_at"] = int(time.time())

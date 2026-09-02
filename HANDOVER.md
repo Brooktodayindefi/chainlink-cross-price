@@ -201,6 +201,17 @@ the Saturn NAV), BOLD (Liquity v2 — nothing at all). Each needs a
 project-supplied oracle address (like reUSD's) or another source (Curve
 pool `price_oracle()`, ERC-4626 vault, …) to be added.
 
+**Step 9 (2026-09-02): sUSDS market alias + reUSD CoinGecko market rate.**
+- sUSDS has no direct USD market feed anywhere, so its "market" method is an
+  alias for the exrate composition (sUSDS/USDS × USDS/USD market) — Brook
+  asked for it explicitly; MARKET_VIA_EXRATE in cross.py, labelled
+  "market · via USDS", numerically identical to exrate, noted in the UI.
+- reUSD gained a real market method: CoinGecko id `re-protocol-reusd`
+  (NOT `resupply-usd`, a different project at ~0.989), reader/history
+  "coingecko" (spot via simple/price, history via market_chart, 365d free
+  cap, hourly ≤90d, not disk-cached). reUSD trades ~12 bp below its oracle
+  rate; the pair reUSD:market/reUSD:exrate charts that discount directly.
+
 **Transport hardening (2026-09-02, found via a real bug):** `rpc_batch` used
 to return None for transport failures, which callers negative-cached as
 "round doesn't exist" — a rate-limit burst permanently blanked fxSAVE/USD3
