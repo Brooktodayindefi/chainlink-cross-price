@@ -141,6 +141,9 @@ More stables added 2026-09-01 (verified live; values from that day):
 | sUSDat/USD | Ethereum | exrate ("Saturn sUSDat NAV") | `0x73B8E902638a21B4d0319CF99Fa333b2727AD318` | 1.01921 |
 | reUSD/USD | Ethereum | exrate, re.xyz oracle, history=blocks | `0x72B5760cFBE437DD01409f44055fDfB8f8121B46` | 1.09814 |
 | scrvUSD/crvUSD | Ethereum | ERC-4626 `convertToAssets`, history=blocks | `0x0655977FEb2f289A4aB78af67BAB0d17aAb84367` | 1.10658 |
+| USD3/USD | Ethereum | market, RedStone, history=blocks | `0xB39339B82DdCF89d12d987d1D4Db33aFdd40B6AA` | 1.10978 |
+| apyUSD/apxUSD | Ethereum | exrate, bare `price()` 1e36, history=blocks | `0x770661EE520Ff9F7D8FaCAdC4EFF885739Bd8872` | 1.42089 |
+| fxSAVE/USD | Ethereum | exrate, f(x) NAV oracle, history=blocks | `0x9dD65b6d956E31F4dc093372D975275986695827` | 1.11535 |
 
 `history="blocks"` sources keep no round history; `history.py` samples them
 once per UTC day via archive `eth_call` at estimated past blocks (ethereum
@@ -180,12 +183,30 @@ history="blocks" below). Note: Brook's message displayed a second address
 neither aggregator nor ERC-20 calls (probably the internal rate contract the
 oracle wraps); the URL's address above is the working one.
 
+**USD3 / apyUSD / fxSAVE — RESOLVED 2026-09-02.** Brook supplied oracle
+addresses (all Ethereum, all history="blocks"):
+- USD3: `0xB39339B82DdCF89d12d987d1D4Db33aFdd40B6AA` — RedStone push feed,
+  quotes USD, roundId stuck at 1.
+- apyUSD: `0x770661EE520Ff9F7D8FaCAdC4EFF885739Bd8872` — exposes ONLY
+  `price()` (everything else reverts), 1e36-scaled apyUSD-in-apxUSD; new
+  reader="price" with a `scale` field handles it; composes with the
+  Chainlink apxUSD/USD feed.
+- fxSAVE: `0x9dD65b6d956E31F4dc093372D975275986695827` — aggregator
+  interface, description "Net Asset Value in USD", but updatedAt=0 and no
+  rounds; zero timestamps now count as live state.
+
 **Still uncovered (no on-chain feed found anywhere, 2026-09-01 sweep of the
-Chainlink directory across ~15 networks):** USD3 (Reserve), fxSAVE, apyUSD
-(only an off-chain apyUSD/apxUSD Data Stream on Arbitrum), USDat (only
-sUSDat has a feed — the Saturn NAV), BOLD (Liquity v2 — nothing at all).
-Each needs a project-supplied oracle address (like reUSD's) or another
-source (Curve pool `price_oracle()`, ERC-4626 vault, …) to be added.
+Chainlink directory across ~15 networks):** USDat (only sUSDat has a feed —
+the Saturn NAV), BOLD (Liquity v2 — nothing at all). Each needs a
+project-supplied oracle address (like reUSD's) or another source (Curve
+pool `price_oracle()`, ERC-4626 vault, …) to be added.
+
+**Transport hardening (2026-09-02, found via a real bug):** `rpc_batch` used
+to return None for transport failures, which callers negative-cached as
+"round doesn't exist" — a rate-limit burst permanently blanked fxSAVE/USD3
+history. Now: only genuine reverts become None; item-level errors like
+"missing trie node" (an endpoint without archive state) reject that endpoint
+for the batch; total transport failure raises. Poisoned caches were purged.
 
 **sUSDe has two USD feeds** (market vs calculated), ~1 bp apart. Recommendation
 for step 2: always compose exrate × underlying market yourself

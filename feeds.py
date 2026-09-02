@@ -156,6 +156,33 @@ FEEDS = {
                                 "convertToAssets(1e18) — the on-chain redemption "
                                 "rate (vault symbol/asset verified on-chain). "
                                 "History is sampled at past blocks."),
+
+    # ---- project oracles supplied by Brook 2026-09-01 (second batch) ----
+    "USD3/USD": dict(chain="ethereum", kind="market", base="USD3", quote="USD",
+                     address="0xB39339B82DdCF89d12d987d1D4Db33aFdd40B6AA",
+                     src="RedStone", history="blocks",
+                     note="RedStone push feed for Reserve's USD3 (on-chain "
+                          "description is just 'Redstone Price Feed'). Its "
+                          "roundId doesn't increment, so history is sampled "
+                          "at past blocks."),
+    "apyUSD/apxUSD": dict(chain="ethereum", kind="exrate", base="apyUSD", quote="apxUSD",
+                          address="0x770661EE520Ff9F7D8FaCAdC4EFF885739Bd8872",
+                          src="project oracle", reader="price", scale=36,
+                          history="blocks",
+                          note="Bare price() oracle — the only function it "
+                               "exposes; returns apyUSD in apxUSD, 1e36-scaled. "
+                               "Composes with the Chainlink apxUSD/USD "
+                               "exchange-rate feed. History is sampled at past "
+                               "blocks."),
+    "fxSAVE/USD": dict(chain="ethereum", kind="exrate", base="fxSAVE", quote="USD",
+                       address="0x9dD65b6d956E31F4dc093372D975275986695827",
+                       src="f(x) Protocol", history="blocks",
+                       note="NAV oracle, on-chain description 'Net Asset Value "
+                            "in USD'; Brook describes it as fxSAVE-in-fxUSD — "
+                            "equivalent while fxUSD holds its $1 peg (fxUSD "
+                            "itself has no feed anywhere). Returns updatedAt=0, "
+                            "so values count as live state and history is "
+                            "sampled at past blocks."),
 }
 
 # Alternate deployments of the same feeds (same answer, different chain) —
@@ -234,15 +261,17 @@ def latest_block(chain):
 
 def rpc_batch(chain, calls):
     """Batched eth_call: calls = [(to, data) or (to, data, block), ...] ->
-    list of result hex or None per call (None = that call errored, e.g.
-    reverted for a nonexistent round). On failure: retry the endpoints once
-    after a pause (rate limits), then bisect (an endpoint may cap batch size);
-    go one-by-one only for remnants — a sequential fallback over a big batch
-    is a multi-minute stall."""
+    list of result hex, or None for calls that REVERTED (e.g. a nonexistent
+    round). A transport-level failure (endpoints down / rate-limited) RAISES
+    instead — callers negative-cache None results, so an outage must never
+    masquerade as a revert. On failure: retry the endpoints once after a
+    pause, then bisect (an endpoint may cap batch size); go one-by-one only
+    for remnants — a sequential fallback over a big batch is a stall."""
     calls = [c if len(c) == 3 else (c[0], c[1], "latest") for c in calls]
     payload = [{"jsonrpc": "2.0", "id": i, "method": "eth_call",
                 "params": [{"to": to, "data": data}, block]}
                for i, (to, data, block) in enumerate(calls)]
+    last_err = None
     for attempt in range(2):
         for url in RPC[chain]:
             try:
@@ -251,10 +280,18 @@ def rpc_batch(chain, calls):
                     raise RuntimeError(f"non-batch response: {j}")
                 out = [None] * len(calls)
                 for item in j:
-                    if isinstance(item.get("id"), int) and "result" in item:
-                        out[item["id"]] = item["result"]
+                    idx = item.get("id")
+                    if not isinstance(idx, int):
+                        continue
+                    if "result" in item:
+                        out[idx] = item["result"]
+                    elif "revert" not in str(item.get("error")).lower():
+                        # not a revert — e.g. an endpoint without archive
+                        # state ("missing trie node") — try the next one
+                        raise RuntimeError(f"item error: {item.get('error')}")
                 return out
-            except Exception:
+            except Exception as e:
+                last_err = e
                 continue
         time.sleep(1 + attempt)
     if len(calls) > 25:
@@ -264,8 +301,13 @@ def rpc_batch(chain, calls):
     for to, data, block in calls:
         try:
             out.append(rpc_call(chain, to, data, block))
-        except Exception:
-            out.append(None)
+        except Exception as e:
+            if "revert" in str(e).lower():
+                out.append(None)
+            else:
+                raise RuntimeError(
+                    f"batch transport failure for {chain}: {e} "
+                    f"(batch had failed with: {last_err})")
     return out
 
 
@@ -302,33 +344,45 @@ def read_feed(chain, address):
 
 
 SEL_CONVERT_TO_ASSETS = "0x07a2d13a"  # convertToAssets(uint256)
+SEL_PRICE = "0xa035b1fe"              # price()
+
+
+def _state_dict(chain, address, description, decimals, raw):
+    """Result shape for instantaneous (timestamp-less) on-chain state."""
+    now = int(time.time())
+    return {
+        "chain": chain, "address": address, "description": description,
+        "decimals": decimals, "raw": raw, "answer": raw / 10 ** decimals,
+        "updated_at": now, "age_h": 0.0, "round_id": 0,
+    }
 
 
 def read_vault(chain, address):
-    """ERC-4626 vault rate via convertToAssets(1 share) — same dict shape as
-    read_feed. The rate is instantaneous chain state, so updated_at is now."""
+    """ERC-4626 vault rate via convertToAssets(1 share)."""
     decimals = int(rpc_call(chain, address, SEL_DECIMALS), 16)
     raw = int(rpc_call(chain, address,
                        SEL_CONVERT_TO_ASSETS + f"{10 ** decimals:064x}"), 16)
-    now = int(time.time())
-    return {
-        "chain": chain,
-        "address": address,
-        "description": "ERC-4626 convertToAssets",
-        "decimals": decimals,
-        "raw": raw,
-        "answer": raw / 10 ** decimals,
-        "updated_at": now,
-        "age_h": 0.0,
-        "round_id": 0,
-    }
+    return _state_dict(chain, address, "ERC-4626 convertToAssets", decimals, raw)
+
+
+def read_price(chain, address, scale):
+    """Bare price() oracle (no other interface), value scaled by 10**scale."""
+    raw = int(rpc_call(chain, address, SEL_PRICE), 16)
+    return _state_dict(chain, address, "price() oracle", scale, raw)
 
 
 def read_source(feed):
     """Read a FEEDS entry through its declared reader."""
-    if feed.get("reader") == "erc4626":
+    reader = feed.get("reader", "aggregator")
+    if reader == "erc4626":
         return read_vault(feed["chain"], feed["address"])
-    return read_feed(feed["chain"], feed["address"])
+    if reader == "price":
+        return read_price(feed["chain"], feed["address"], feed.get("scale", 18))
+    d = read_feed(feed["chain"], feed["address"])
+    if d["updated_at"] == 0:  # NAV-style aggregators report no timestamp
+        d["updated_at"] = int(time.time())
+        d["age_h"] = 0.0
+    return d
 
 
 def fetch_all(feeds=FEEDS):

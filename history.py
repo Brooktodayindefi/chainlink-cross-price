@@ -25,7 +25,7 @@ import time
 from collections import Counter
 from concurrent.futures import ThreadPoolExecutor
 
-from feeds import (FEEDS, SEL_CONVERT_TO_ASSETS, SEL_LATEST_ROUND,
+from feeds import (FEEDS, SEL_CONVERT_TO_ASSETS, SEL_LATEST_ROUND, SEL_PRICE,
                    latest_block, read_feed, read_source, rpc_batch,
                    _decode_int256)
 from cross import legs, methods, parse_spec, PriceError
@@ -138,7 +138,7 @@ def _block_sampled(name, cutoff_ts):
     cache = _load_cache(name)  # midnight ts -> (raw, value_ts) | None
     live = read_source(f)
     decimals = live["decimals"]
-    is_vault = f.get("reader") == "erc4626"
+    reader = f.get("reader", "aggregator")
 
     utc = datetime.timezone.utc
     day = datetime.datetime.fromtimestamp(cutoff_ts, utc).date()
@@ -153,17 +153,24 @@ def _block_sampled(name, cutoff_ts):
     if todo:
         num, now_ts = latest_block(chain)
         spb = SEC_PER_BLOCK.get(chain, 12.05)
-        data = (SEL_CONVERT_TO_ASSETS + f"{10 ** decimals:064x}") if is_vault \
-            else SEL_LATEST_ROUND
+        data = {"erc4626": SEL_CONVERT_TO_ASSETS + f"{10 ** decimals:064x}",
+                "price": SEL_PRICE}.get(reader, SEL_LATEST_ROUND)
         calls = [(address, data,
                   hex(max(1, num - int((now_ts - t) / spb)))) for t in todo]
         for t, res in zip(todo, rpc_batch(chain, calls)):
-            if is_vault:
+            if reader == "aggregator":
+                d = _decode_round(res)  # latestRoundData has the same layout
+                if d:
+                    cache[t] = (d[0], d[1])
+                elif res and len(res) >= 2 + 64 * 4:
+                    # NAV-style aggregator: updatedAt=0 -> stamp the sample time
+                    raw = _decode_int256(res[2:][64:128])
+                    cache[t] = (raw, t) if raw > 0 else None
+                else:
+                    cache[t] = None
+            else:
                 raw = int(res, 16) if res and res != "0x" else 0
                 cache[t] = (raw, t) if raw > 0 else None
-            else:
-                d = _decode_round(res)  # latestRoundData has the same layout
-                cache[t] = (d[0], d[1]) if d else None
         _save_cache(name, cache)
 
     pts = {(ts, raw / 10 ** decimals) for v in cache.values() if v

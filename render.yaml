@@ -1,0 +1,10 @@
+services:
+  - type: web
+    name: chainlink-cross-price
+    runtime: python
+    plan: free
+    buildCommand: "echo stdlib only, nothing to build"
+    startCommand: python app.py
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.12.6

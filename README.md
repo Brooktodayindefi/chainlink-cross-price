@@ -49,11 +49,21 @@ python history.py syrupUSDT/GHO --days 90 --json
 ## Sources
 
 Mostly Chainlink feeds (proxy addresses verified live against
-docs.chain.link's directory), plus two non-Chainlink adapters: re.xyz's
-reUSD/USD oracle and the Savings-crvUSD vault rate. The full registry with
-addresses, alternates, and per-feed notes is in `feeds.py`; project history
-and open issues (assets with no on-chain feed yet: USD3, fxSAVE, apyUSD,
-USDat, BOLD) are in `HANDOVER.md`.
+docs.chain.link's directory), plus project-supplied adapters: re.xyz's
+reUSD/USD oracle, the Savings-crvUSD vault rate, RedStone's USD3 feed, an
+apyUSD-in-apxUSD `price()` oracle, and f(x)'s fxSAVE NAV oracle. The full
+registry with addresses, alternates, and per-feed notes is in `feeds.py`;
+project history and open issues (assets with no on-chain feed yet: USDat,
+BOLD) are in `HANDOVER.md`.
+
+## Deploying for others
+
+The server binds `127.0.0.1` locally, but honors `PORT`/`HOST` env vars and
+ships with a `Dockerfile` and a Render blueprint (`render.yaml`) — connect
+the repo on render.com ("New → Blueprint") for a free hosted URL, or
+`docker run -p 8787:8787` the image anywhere. Note the `.cache/` directory
+is ephemeral on most free tiers, so cold history fetches recur after
+restarts.
 
 ## Files
 
